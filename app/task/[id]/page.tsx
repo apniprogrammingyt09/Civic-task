@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, MapPin, Clock, Camera, Navigation, MessageSquare, Upload, AlertTriangle } from "lucide-react"
+import { ArrowLeft, MapPin, Clock, Camera, Navigation, MessageSquare, Upload, AlertTriangle, Wrench, Droplets, Zap, TreePine, Car, Home } from "lucide-react"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { AuthGuard } from "@/components/auth-guard"
 import Link from "next/link"
@@ -145,8 +145,13 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-start space-x-3">
-                  <div className="w-12 h-12 bg-slate-700 rounded-lg flex items-center justify-center">
-                    <div className="w-6 h-6 bg-primary rounded-sm"></div>
+                  <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    {task.category === "Sanitation" && <Droplets className="h-6 w-6 text-blue-600" />}
+                    {task.category === "Electrical" && <Zap className="h-6 w-6 text-yellow-600" />}
+                    {task.category === "Maintenance" && <Wrench className="h-6 w-6 text-gray-600" />}
+                    {task.category === "Environment" && <TreePine className="h-6 w-6 text-green-600" />}
+                    {task.category === "Transport" && <Car className="h-6 w-6 text-purple-600" />}
+                    {!['Sanitation', 'Electrical', 'Maintenance', 'Environment', 'Transport'].includes(task.category) && <Home className="h-6 w-6 text-orange-600" />}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2">
