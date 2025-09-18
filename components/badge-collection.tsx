@@ -1,12 +1,12 @@
-import { Award, Star, Zap, Shield, Trophy, Target, Medal } from "lucide-react"
+import { Award, Star, Zap, Shield, Trophy, Target, Medal, Crown } from "lucide-react"
 
 const badges = [
-  { icon: Award, name: "Quick Resolver", earned: true, color: "text-green-500", bgColor: "bg-green-500/10" },
-  { icon: Star, name: "On-Time Hero", earned: true, color: "text-blue-500", bgColor: "bg-blue-500/10" },
-  { icon: Zap, name: "Speed Demon", earned: true, color: "text-yellow-500", bgColor: "bg-yellow-500/10" },
-  { icon: Shield, name: "Quality Guardian", earned: true, color: "text-purple-500", bgColor: "bg-purple-500/10" },
+  { icon: Zap, name: "Quick Resolver", earned: true, color: "text-yellow-500", bgColor: "bg-yellow-500/10" },
+  { icon: Target, name: "On-Time Hero", earned: true, color: "text-blue-500", bgColor: "bg-blue-500/10" },
+  { icon: Zap, name: "Speed Demon", earned: true, color: "text-orange-500", bgColor: "bg-orange-500/10" },
+  { icon: Shield, name: "Quality Guardian", earned: true, color: "text-green-500", bgColor: "bg-green-500/10" },
   { icon: Trophy, name: "Top Performer", earned: false, color: "text-gray-400", bgColor: "bg-gray-100" },
-  { icon: Target, name: "Precision Pro", earned: false, color: "text-gray-400", bgColor: "bg-gray-100" },
+  { icon: Crown, name: "Team Leader", earned: false, color: "text-gray-400", bgColor: "bg-gray-100" },
 ]
 
 export function BadgeCollection() {

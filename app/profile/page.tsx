@@ -179,26 +179,37 @@ export default function ProfilePage() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold">Badges & Achievements</h3>
                     <Link href="/achievements">
-                      <Button variant="ghost" size="sm" className="text-primary">
+                      <Button variant="ghost" size="sm" className="text-primary hover:bg-primary/10">
                         View All
                       </Button>
                     </Link>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    {user.badges.map((badge) => (
-                      <div key={badge.id} className="flex items-center space-x-3 p-3 bg-muted/50 rounded-lg">
-                        <div className="w-10 h-10 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center text-white text-lg">
-                          {badge.icon}
+                    {user.badges.map((badge) => {
+                      const badgeConfig = {
+                        Zap: { icon: "⚡", color: "text-yellow-500", bgColor: "bg-yellow-500/10" },
+                        Target: { icon: "🎯", color: "text-blue-500", bgColor: "bg-blue-500/10" },
+                        Crown: { icon: "👑", color: "text-purple-500", bgColor: "bg-purple-500/10" },
+                      }[badge.icon] || { icon: "🏆", color: "text-orange-500", bgColor: "bg-orange-500/10" }
+                      
+                      return (
+                        <div key={badge.id} className={`flex items-center space-x-3 p-3 rounded-lg border ${badgeConfig.bgColor} border-current/20`}>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${badgeConfig.bgColor} text-lg relative`}>
+                            <span className="text-lg">{badgeConfig.icon}</span>
+                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full flex items-center justify-center">
+                              <span className="text-xs text-white">✓</span>
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-sm truncate">{badge.name}</h4>
+                            <p className="text-xs text-muted-foreground truncate">{badge.description}</p>
+                            <Badge variant="secondary" className="text-xs mt-1">
+                              {badge.rarity}
+                            </Badge>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-sm truncate">{badge.name}</h4>
-                          <p className="text-xs text-muted-foreground truncate">{badge.description}</p>
-                          <Badge variant="secondary" className="text-xs mt-1">
-                            {badge.rarity}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </CardContent>
               </Card>
