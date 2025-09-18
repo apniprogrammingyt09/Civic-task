@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Star, Trophy, TrendingUp, Award, BarChart3 } from "lucide-react"
+import { ArrowLeft, Star, Trophy, TrendingUp, Award, BarChart3, Zap, Target, CheckCircle } from "lucide-react"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { AuthGuard } from "@/components/auth-guard"
 import Link from "next/link"
@@ -201,6 +201,30 @@ export default function LeaderboardPage() {
               </Card>
             )}
 
+            {/* Recent Badges Section */}
+            <Card>
+              <CardHeader className="flex items-center justify-between">
+                <CardTitle className="flex items-center space-x-2">
+                  <Star className="h-5 w-5 text-yellow-500" />
+                  <span>Recent Badges</span>
+                </CardTitle>
+                <Button variant="link" size="sm" className="text-xs px-2">View All</Button>
+              </CardHeader>
+              <CardContent className="flex gap-4 flex-wrap">
+                <div className="flex flex-col items-center">
+                  <Zap className="h-6 w-6 text-yellow-500" />
+                  <span className="text-xs mt-1">Zap</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <CheckCircle className="h-6 w-6 text-green-500" />
+                  <span className="text-xs mt-1">Quick Resolver</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <Target className="h-6 w-6 text-blue-500" />
+                  <span className="text-xs mt-1">Target</span>
+                </div>
+              </CardContent>
+            </Card>
             {/* Other Staff Section */}
             <Card>
               <CardHeader>
