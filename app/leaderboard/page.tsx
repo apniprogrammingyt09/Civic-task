@@ -217,10 +217,10 @@ export default function LeaderboardPage() {
                   return (
                     <div
                       key={staff.id}
-                      className={`flex items-center justify-between p-2 sm:p-3 rounded-lg ${isCurrentUser ? "bg-primary/10 border border-primary/20" : "bg-muted/30"}`}
+                      className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0 p-2 sm:p-3 rounded-lg ${isCurrentUser ? "bg-primary/10 border border-primary/20" : "bg-muted/30"}`}
                     >
-                      <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0">
-                        <div className="flex items-center space-x-1 sm:space-x-2 min-w-[35px] sm:min-w-[40px]">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                        <div className="flex items-center gap-1 sm:gap-2 min-w-[35px] sm:min-w-[40px]">
                           <span className={`text-sm sm:text-lg font-bold ${index < 3 ? "text-primary" : "text-muted-foreground"}`}>
                             #{index + 1}
                           </span>
@@ -239,7 +239,7 @@ export default function LeaderboardPage() {
                           <h4 className="font-medium text-sm sm:text-base truncate">
                             {staff.name} {isCurrentUser && <span className="text-primary">(You)</span>}
                           </h4>
-                          <div className="flex items-center space-x-1 sm:space-x-2 flex-wrap">
+                          <div className="flex flex-wrap gap-1 sm:gap-2 items-center mt-1 sm:mt-0">
                             <Badge variant="secondary" className={`text-xs ${category.color}`}>
                               <span className="hidden sm:inline">{category.label}</span>
                               <span className="sm:hidden">{category.label.split(' ')[0]}</span>
@@ -253,7 +253,7 @@ export default function LeaderboardPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
+                      <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2 sm:gap-0 text-right flex-shrink-0">
                         <div className="font-bold text-sm sm:text-base">{staff.civicScore}</div>
                         <div className="text-xs text-muted-foreground">{staff.stats.completionRate}%</div>
                       </div>
