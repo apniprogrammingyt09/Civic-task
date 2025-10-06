@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,107 +10,149 @@ import { BottomNavigation } from "@/components/bottom-navigation"
 import { AuthGuard } from "@/components/auth-guard"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
-import { mockTasks } from "@/lib/mock-data"
+import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
-const generateNotifications = (userId: string) => {
-  const userTasks = mockTasks.filter((task) => task.assignedTo === userId)
-  const notifications = []
 
-  // System notifications
-  notifications.push({
-    id: 1,
-    type: "emergency" as const,
-    title: "Weather Alert",
-    message: "Heavy rain expected tomorrow. Prioritize drainage-related tasks and ensure safety protocols.",
-    time: "5 min ago",
-    read: false,
-    icon: AlertTriangle,
-    color: "text-red-500",
-    priority: "high" as const,
-  })
-
-  // Task-based notifications
-  const completedTasks = userTasks.filter((task) => task.status === "completed").slice(0, 2)
-  completedTasks.forEach((task, index) => {
-    notifications.push({
-      id: notifications.length + 1,
-      type: "task" as const,
-      title: "Task Completed",
-      message: `${task.title} has been marked as completed. Citizen rating: ${task.citizenRating || 4.5}/5`,
-      time: index === 0 ? "1 hour ago" : "3 hours ago",
-      read: index > 0,
-      icon: CheckCircle,
-      color: "text-green-500",
-      priority: "medium" as const,
-      taskId: task.id,
-    })
-  })
-
-  // New task assignments
-  const newTasks = userTasks.filter((task) => task.status === "pending").slice(0, 1)
-  newTasks.forEach((task) => {
-    notifications.push({
-      id: notifications.length + 1,
-      type: "task" as const,
-      title: "New Task Assigned",
-      message: `${task.title} in ${task.location.address} has been assigned to you. Priority: ${task.priority}`,
-      time: "2 hours ago",
-      read: true,
-      icon: Info,
-      color: "text-blue-500",
-      priority: task.priority as "low" | "medium" | "high",
-      taskId: task.id,
-    })
-  })
-
-  // Escalated tasks
-  const escalatedTasks = userTasks.filter((task) => task.status === "escalated").slice(0, 1)
-  escalatedTasks.forEach((task) => {
-    notifications.push({
-      id: notifications.length + 1,
-      type: "escalation" as const,
-      title: "Task Escalated",
-      message: `${task.title} has been escalated. Please review supervisor feedback and resubmit within 24 hours.`,
-      time: "1 day ago",
-      read: true,
-      icon: AlertTriangle,
-      color: "text-red-500",
-      priority: "high" as const,
-      taskId: task.id,
-    })
-  })
-
-  // Performance notifications
-  notifications.push({
-    id: notifications.length + 1,
-    type: "achievement" as const,
-    title: "Performance Milestone",
-    message: "Congratulations! You've completed 10 tasks this month and earned the 'Efficient Worker' badge.",
-    time: "2 days ago",
-    read: true,
-    icon: CheckCircle,
-    color: "text-green-500",
-    priority: "low" as const,
-  })
-
-  return notifications.sort((a, b) => {
-    // Sort by read status first, then by priority
-    if (a.read !== b.read) return a.read ? 1 : -1
-    const priorityOrder = { high: 0, medium: 1, low: 2 }
-    return priorityOrder[a.priority] - priorityOrder[b.priority]
-  })
-}
 
 export default function NotificationsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [selectedFilter, setSelectedFilter] = useState<"all" | "unread" | "emergency" | "tasks">("all")
 
-  const notifications = useMemo(() => {
-    if (!user) return []
-    return generateNotifications(user.id)
-  }, [user])
+  useEffect(() => {
+    setNotificationList([])
+  }, [])
 
-  const [notificationList, setNotificationList] = useState(notifications)
+  useEffect(() => {
+    if (!user) {
+      router.push('/login')
+    }
+  }, [user, router])
+
+  const [notificationList, setNotificationList] = useState([])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const issuesRef = collection(db, 'issues')
+    const q = query(issuesRef, where('assignedPersonnel.id', '==', user.id), orderBy('lastUpdated', 'desc'), limit(20))
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notifications = []
+      
+      snapshot.docs.forEach((doc, index) => {
+        const task = doc.data()
+        const taskId = doc.id
+        const timeAgo = task.lastUpdated?.toDate ? 
+          new Date().getTime() - task.lastUpdated.toDate().getTime() < 3600000 ? 
+            Math.floor((new Date().getTime() - task.lastUpdated.toDate().getTime()) / 60000) + ' min ago' :
+            Math.floor((new Date().getTime() - task.lastUpdated.toDate().getTime()) / 3600000) + ' hours ago'
+          : 'Recently'
+
+        // New task assignment
+        if (task.status === 'assign' && task.assignedAt) {
+          notifications.push({
+            id: `assign-${taskId}`,
+            type: 'task',
+            title: 'New Task Assigned',
+            message: `${task.summary || 'Task'} at ${task.geoData?.address || 'location'} has been assigned to you. Priority: ${task.priority || 'medium'}`,
+            time: timeAgo,
+            read: index > 2,
+            icon: Info,
+            color: 'text-blue-500',
+            priority: task.priority?.toLowerCase() || 'medium',
+            taskId
+          })
+        }
+
+        // Proof approved
+        if (task.proofStatus === 'approved') {
+          notifications.push({
+            id: `approved-${taskId}`,
+            type: 'task',
+            title: 'Work Approved',
+            message: `Your work on ${task.summary || 'task'} has been approved by the department.`,
+            time: timeAgo,
+            read: index > 1,
+            icon: CheckCircle,
+            color: 'text-green-500',
+            priority: 'medium',
+            taskId
+          })
+        }
+
+        // Proof rejected
+        if (task.proofStatus === 'rejected') {
+          notifications.push({
+            id: `rejected-${taskId}`,
+            type: 'task',
+            title: 'Work Rejected',
+            message: `Your work on ${task.summary || 'task'} needs revision. Please resubmit proof of work.`,
+            time: timeAgo,
+            read: false,
+            icon: AlertTriangle,
+            color: 'text-red-500',
+            priority: 'high',
+            taskId
+          })
+        }
+
+        // Escalation approved
+        if (task.escalation?.status === 'approved') {
+          notifications.push({
+            id: `esc-approved-${taskId}`,
+            type: 'escalation',
+            title: 'Escalation Approved',
+            message: `Your escalation for ${task.summary || 'task'} has been approved by the department.`,
+            time: timeAgo,
+            read: index > 1,
+            icon: CheckCircle,
+            color: 'text-green-500',
+            priority: 'medium',
+            taskId
+          })
+        }
+
+        // Escalation rejected
+        if (task.escalation?.status === 'rejected') {
+          notifications.push({
+            id: `esc-rejected-${taskId}`,
+            type: 'escalation',
+            title: 'Escalation Rejected',
+            message: `Your escalation for ${task.summary || 'task'} was not approved. Please continue with the task.`,
+            time: timeAgo,
+            read: false,
+            icon: AlertTriangle,
+            color: 'text-red-500',
+            priority: 'high',
+            taskId
+          })
+        }
+      })
+
+      // Add system notification
+      notifications.unshift({
+        id: 'system-1',
+        type: 'emergency',
+        title: 'Weather Alert',
+        message: 'Heavy rain expected tomorrow. Prioritize drainage-related tasks and ensure safety protocols.',
+        time: '5 min ago',
+        read: false,
+        icon: AlertTriangle,
+        color: 'text-red-500',
+        priority: 'high'
+      })
+
+      setNotificationList(notifications.sort((a, b) => {
+        if (a.read !== b.read) return a.read ? 1 : -1
+        const priorityOrder = { high: 0, medium: 1, low: 2 }
+        return priorityOrder[a.priority] - priorityOrder[b.priority]
+      }))
+    })
+
+    return () => unsubscribe()
+  }, [user])
 
   const markAsRead = (id: number) => {
     setNotificationList((prev) => prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)))

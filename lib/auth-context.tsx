@@ -2,12 +2,15 @@
 
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
+import { doc, getDoc, query, where, collection, getDocs } from 'firebase/firestore'
+import { auth, db } from './firebase'
 import { type User, getCurrentUser, mockUsers } from "./mock-data"
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
-  login: (credentials: { email: string; otp: string }) => Promise<boolean>
+  login: (credentials: { email: string; password: string }) => Promise<boolean>
   logout: () => void
   loading: boolean
 }
@@ -31,33 +34,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check if user is already logged in
-    const savedUser = localStorage.getItem("civic-user")
-    if (savedUser) {
-      setUser(JSON.parse(savedUser))
-    }
-    setLoading(false)
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          // Check civicUsers collection for department-created users
+          const q = query(collection(db, 'civicUsers'), where('uid', '==', firebaseUser.uid))
+          const querySnapshot = await getDocs(q)
+          
+          if (!querySnapshot.empty) {
+            const userData = querySnapshot.docs[0].data()
+            const mockUser = {
+              ...getCurrentUser(),
+              id: firebaseUser.uid,
+              name: userData.name,
+              email: userData.email,
+              department: userData.departmentName || 'General',
+              role: userData.role || 'citizen',
+              profileImage: userData.profileImage || '',
+              avatar: userData.profileImage || ''
+            }
+            console.log('Civic user logged in with ID:', firebaseUser.uid)
+            console.log('User data from civicUsers:', userData)
+            console.log('Final user object:', mockUser)
+            setUser(mockUser)
+          } else {
+            setUser(null)
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error)
+          setUser(null)
+        }
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    })
+
+    return () => unsubscribe()
   }, [])
 
-  const login = async (credentials: { email: string; otp: string }): Promise<boolean> => {
+  const login = async (credentials: { email: string; password: string }): Promise<boolean> => {
     setLoading(true)
-
-    // Mock authentication - accept any email with OTP "123456"
-    if (credentials.otp === "123456") {
-      const mockUser = getCurrentUser()
-      setUser(mockUser)
-      localStorage.setItem("civic-user", JSON.stringify(mockUser))
-      setLoading(false)
+    try {
+      await signInWithEmailAndPassword(auth, credentials.email, credentials.password)
       return true
+    } catch (error) {
+      console.error('Login error:', error)
+      setLoading(false)
+      return false
     }
-
-    setLoading(false)
-    return false
   }
 
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem("civic-user")
+  const logout = async () => {
+    try {
+      await signOut(auth)
+      setUser(null)
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
   }
 
   return (

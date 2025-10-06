@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +12,8 @@ import { BottomNavigation } from "@/components/bottom-navigation"
 import { AuthGuard } from "@/components/auth-guard"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
+import { db } from "@/lib/firebase"
+import { collection, query, where, onSnapshot, addDoc, orderBy, serverTimestamp } from "firebase/firestore"
 
 const generateChatList = (currentUserId: string) => [
   {
@@ -105,51 +108,170 @@ const generateMessages = (chatId: number, currentUserId: string) => {
 }
 
 export default function ChatPage() {
-  const [selectedChat, setSelectedChat] = useState<number | null>(null)
+  const [selectedChat, setSelectedChat] = useState<string | null>(null)
   const [message, setMessage] = useState("")
   const [searchTerm, setSearchTerm] = useState("")
   const [messages, setMessages] = useState<any[]>([])
+  const [departmentWorkers, setDepartmentWorkers] = useState<any[]>([])
   const { user } = useAuth()
+  const router = useRouter()
 
-  const chatList = useMemo(() => {
-    if (!user) return []
-    return generateChatList(user.id)
+  useEffect(() => {
+    if (!user) {
+      router.push('/login')
+    }
+  }, [user, router])
+
+  // Fetch department workers and admins
+  useEffect(() => {
+    if (!user) return
+
+    // Fetch civic workers from same department
+    const workersQuery = query(
+      collection(db, 'civicUsers'),
+      where('departmentName', '==', user.department)
+    )
+
+    const workersUnsubscribe = onSnapshot(workersQuery, (snapshot) => {
+      const workers = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        type: 'worker'
+      })).filter(worker => worker.uid !== user.id)
+      
+      console.log('Found workers:', workers) // Debug log
+      
+      // Fetch department admins
+      const adminsQuery = query(
+        collection(db, 'users')
+      )
+
+      const adminsUnsubscribe = onSnapshot(adminsQuery, (adminSnapshot) => {
+        const admins = adminSnapshot.docs.map(doc => {
+          const data = doc.data()
+          console.log('Admin data:', data) // Debug log
+          return {
+            id: doc.id,
+            uid: doc.id, // Use document ID as UID for consistency
+            name: data.name,
+            role: 'Department Admin',
+            departmentName: data.department?.name || data.departmentName,
+            departmentId: data.departmentId,
+            active: true,
+            profileImage: data.profileImage || '/placeholder.svg',
+            type: 'admin',
+            location: 'Department Office'
+          }
+        }).filter(admin => {
+          console.log('Filtering admin:', admin.departmentId, 'vs user dept:', user.department) // Debug log
+          
+          // Match by department ID
+          return (admin.departmentId === 'environment' && user.department === 'Environment & Parks Department') ||
+                 (admin.departmentId === 'pwd' && user.department.includes('PWD')) ||
+                 (admin.departmentId === 'health' && user.department.includes('Health')) ||
+                 (admin.departmentId === 'traffic' && user.department.includes('Traffic')) ||
+                 (admin.departmentId === 'swm' && user.department.includes('SWM')) ||
+                 (admin.departmentId === 'disaster' && user.department.includes('Disaster'))
+        })
+        
+        console.log('Found admins:', admins) // Debug log
+        console.log('Current user department:', user.department) // Debug log
+        
+        // Add fallback admin for the user's department
+        if (admins.length === 0) {
+          const fallbackAdmin = {
+            id: `${user.department.toLowerCase().replace(/\s+/g, '-')}-admin`,
+            uid: `${user.department.toLowerCase().replace(/\s+/g, '-')}-admin`,
+            name: `${user.department} Admin`,
+            role: 'Department Admin',
+            departmentName: user.department,
+            active: true,
+            profileImage: '/placeholder.svg',
+            type: 'admin',
+            location: 'Department Office'
+          }
+          admins.push(fallbackAdmin)
+        }
+        
+        setDepartmentWorkers([...workers, ...admins])
+      }, (error) => {
+        console.error('Error fetching admins:', error)
+        setDepartmentWorkers(workers)
+      })
+
+      return () => adminsUnsubscribe()
+    }, (error) => {
+      console.error('Error fetching department workers:', error)
+    })
+
+    return () => workersUnsubscribe()
   }, [user])
 
-  const filteredChats = useMemo(() => {
-    return chatList.filter(
-      (chat) =>
-        chat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        chat.lastMessage.toLowerCase().includes(searchTerm.toLowerCase()),
+  // Fetch messages for selected chat
+  useEffect(() => {
+    if (!selectedChat || !user) return
+
+    const chatId = [user.id, selectedChat].sort().join('_')
+    console.log('Civic chat - fetching messages for chatId:', chatId, 'user.id:', user.id, 'selectedChat:', selectedChat)
+    const q = query(
+      collection(db, 'messages'),
+      where('chatId', '==', chatId)
     )
-  }, [chatList, searchTerm])
 
-  const handleSelectChat = (chatId: number) => {
-    setSelectedChat(chatId)
-    if (user) {
-      setMessages(generateMessages(chatId, user.id))
-    }
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isCurrentUser: doc.data().senderId === user.id
+      })).sort((a, b) => {
+        // Sort by createdAt client-side
+        const timeA = new Date(a.createdAt || 0).getTime()
+        const timeB = new Date(b.createdAt || 0).getTime()
+        return timeA - timeB
+      })
+      console.log('Civic chat - messages:', msgs)
+      setMessages(msgs)
+    })
+
+    return () => unsubscribe()
+  }, [selectedChat, user])
+
+  const filteredWorkers = useMemo(() => {
+    return departmentWorkers.filter((worker) =>
+      worker.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      worker.role.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  }, [departmentWorkers, searchTerm])
+
+  const handleSelectChat = (workerId: string) => {
+    setSelectedChat(workerId)
   }
 
-  const handleSendMessage = () => {
-    if (message.trim() && user) {
-      const newMessage = {
-        id: messages.length + 1,
-        senderId: user.id,
-        message: message.trim(),
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        isCurrentUser: true,
+  const handleSendMessage = async () => {
+    if (message.trim() && user && selectedChat) {
+      try {
+        const chatId = [user.id, selectedChat].sort().join('_')
+        console.log('Civic sending message - chatId:', chatId, 'senderId:', user.id)
+        await addDoc(collection(db, 'messages'), {
+          chatId,
+          senderId: user.id,
+          senderName: user.name,
+          message: message.trim(),
+          timestamp: serverTimestamp(),
+          createdAt: new Date().toISOString()
+        })
+        setMessage("")
+      } catch (error) {
+        console.error('Error sending message:', error)
       }
-      setMessages([...messages, newMessage])
-      setMessage("")
     }
   }
 
-  const totalUnread = chatList.reduce((sum, chat) => sum + chat.unread, 0)
+  const totalUnread = 0 // Will implement unread count later
 
   if (selectedChat) {
-    const chat = chatList.find((c) => c.id === selectedChat)
-    if (!chat) return null
+    const worker = departmentWorkers.find((w) => w.uid === selectedChat)
+    if (!worker) return null
 
     return (
       <AuthGuard>
@@ -157,13 +279,13 @@ export default function ChatPage() {
           {/* Chat Header */}
           <header className="flex items-center justify-between p-4 border-b border-border bg-card">
             <div className="flex items-center space-x-3">
-              <Button variant="ghost" size="sm" onClick={() => setSelectedChat(null)}>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedChat(null)} className="hover:bg-muted hover:text-foreground">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <Avatar className="h-10 w-10">
-                <AvatarImage src={chat.avatar || "/placeholder.svg"} alt={chat.name} />
+                <AvatarImage src={worker.profileImage || "/placeholder.svg"} alt={worker.name} />
                 <AvatarFallback>
-                  {chat.name
+                  {worker.name
                     .split(" ")
                     .map((n) => n[0])
                     .join("")
@@ -171,30 +293,26 @@ export default function ChatPage() {
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <h2 className="font-semibold">{chat.name}</h2>
+                <h2 className="font-semibold">{worker.name}</h2>
                 <div className="flex items-center space-x-2">
-                  <p className="text-sm text-muted-foreground">{chat.role}</p>
-                  {chat.online && (
+                  <p className="text-sm text-muted-foreground">{worker.role}</p>
+                  {worker.active && (
                     <div className="flex items-center space-x-1">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <span className="text-xs text-green-600">Online</span>
+                      <span className="text-xs text-green-600">Active</span>
                     </div>
                   )}
                 </div>
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              {chat.type !== "system" && (
-                <>
-                  <Button variant="ghost" size="sm">
-                    <Phone className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm">
-                    <Video className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="hover:bg-muted hover:text-foreground">
+                <Phone className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" className="hover:bg-muted hover:text-foreground">
+                <Video className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" className="hover:bg-muted hover:text-foreground">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </div>
@@ -209,11 +327,14 @@ export default function ChatPage() {
                     msg.isCurrentUser ? "bg-primary text-primary-foreground" : "bg-muted"
                   }`}
                 >
+                  {!msg.isCurrentUser && (
+                    <p className="text-xs font-medium mb-1">{msg.senderName}</p>
+                  )}
                   <p className="text-sm">{msg.message}</p>
                   <span
                     className={`text-xs ${msg.isCurrentUser ? "text-primary-foreground/70" : "text-muted-foreground"}`}
                   >
-                    {msg.timestamp}
+                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ''}
                   </span>
                 </div>
               </div>
@@ -221,22 +342,20 @@ export default function ChatPage() {
           </div>
 
           {/* Message Input */}
-          {chat.type !== "system" && (
-            <div className="p-4 border-t border-border bg-card">
-              <div className="flex items-center space-x-2">
-                <Input
-                  placeholder="Type a message..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                  className="flex-1"
-                />
-                <Button onClick={handleSendMessage} disabled={!message.trim()}>
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
+          <div className="p-4 border-t border-border bg-card">
+            <div className="flex items-center space-x-2">
+              <Input
+                placeholder="Type a message..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                className="flex-1"
+              />
+              <Button onClick={handleSendMessage} disabled={!message.trim()} className="hover:opacity-90">
+                <Send className="h-4 w-4" />
+              </Button>
             </div>
-          )}
+          </div>
         </div>
       </AuthGuard>
     )
@@ -248,7 +367,7 @@ export default function ChatPage() {
         <header className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center">
             <Link href="/">
-              <Button variant="ghost" size="sm" className="mr-3">
+              <Button variant="ghost" size="sm" className="mr-3 hover:bg-muted hover:text-foreground">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             </Link>
@@ -256,7 +375,7 @@ export default function ChatPage() {
             {totalUnread > 0 && <Badge className="ml-2 bg-red-500 text-white">{totalUnread}</Badge>}
           </div>
           <Link href="/notifications">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="hover:bg-muted hover:text-foreground">
               <Bell className="h-4 w-4" />
             </Button>
           </Link>
@@ -280,100 +399,119 @@ export default function ChatPage() {
               <Card>
                 <CardContent className="p-3 text-center">
                   <MessageSquare className="h-5 w-5 mx-auto mb-1 text-primary" />
-                  <div className="text-lg font-bold">{chatList.length}</div>
-                  <div className="text-xs text-muted-foreground">Conversations</div>
+                  <div className="text-lg font-bold">{departmentWorkers.filter(w => w.type === 'worker').length}</div>
+                  <div className="text-xs text-muted-foreground">Workers</div>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-3 text-center">
-                  <Bell className="h-5 w-5 mx-auto mb-1 text-orange-500" />
-                  <div className="text-lg font-bold">{totalUnread}</div>
-                  <div className="text-xs text-muted-foreground">Unread</div>
+                  <Users className="h-5 w-5 mx-auto mb-1 text-blue-500" />
+                  <div className="text-lg font-bold">{departmentWorkers.filter(w => w.type === 'admin').length}</div>
+                  <div className="text-xs text-muted-foreground">Admins</div>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-3 text-center">
-                  <Users className="h-5 w-5 mx-auto mb-1 text-green-500" />
-                  <div className="text-lg font-bold">{chatList.filter((c) => c.online).length}</div>
-                  <div className="text-xs text-muted-foreground">Online</div>
+                  <div className="w-5 h-5 mx-auto mb-1 bg-green-500 rounded-full"></div>
+                  <div className="text-lg font-bold">{departmentWorkers.filter((w) => w.active).length}</div>
+                  <div className="text-xs text-muted-foreground">Active</div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Emergency Broadcast */}
-            {chatList.find((c) => c.type === "system" && c.unread > 0) && (
-              <Card className="bg-red-50 border-red-200">
+
+
+            {/* Department Admin Section */}
+            {departmentWorkers.filter(w => w.type === 'admin').length > 0 && (
+              <Card className="bg-primary/5 border-primary/20">
                 <CardContent className="p-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-                      <Bell className="h-5 w-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-red-800">Emergency Alerts</h3>
-                      <p className="text-sm text-red-600">Weather Alert: Heavy rain expected tomorrow</p>
-                    </div>
-                    <Badge className="bg-red-500 text-white">1</Badge>
+                  <h3 className="font-semibold mb-3 text-primary flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Department Administration
+                  </h3>
+                  <div className="space-y-2">
+                    {departmentWorkers.filter(w => w.type === 'admin').map((admin) => (
+                      <div
+                        key={admin.id}
+                        className="p-3 bg-background rounded border cursor-pointer hover:bg-primary/10 transition-colors"
+                        onClick={() => handleSelectChat(admin.uid)}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={admin.profileImage || "/placeholder.svg"} alt={admin.name} />
+                            <AvatarFallback className="bg-primary text-primary-foreground">
+                              {admin.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-medium text-foreground">{admin.name}</h4>
+                              <Badge className="text-xs bg-primary text-primary-foreground">
+                                Admin
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{admin.role}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Chat List */}
-            <div className="space-y-2">
-              {filteredChats.map((chat) => (
-                <Card
-                  key={chat.id}
-                  className="cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => handleSelectChat(chat.id)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="relative">
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={chat.avatar || "/placeholder.svg"} alt={chat.name} />
-                          <AvatarFallback>
-                            {chat.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        {chat.online && (
-                          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-background"></div>
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold truncate">{chat.name}</h3>
-                          <span className="text-xs text-muted-foreground">{chat.time}</span>
+            {/* Department Workers List */}
+            {departmentWorkers.filter(w => w.type === 'worker').length > 0 && (
+              <Card>
+                <CardContent className="p-4">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4" />
+                    Team Members
+                  </h3>
+                  <div className="space-y-2">
+                    {filteredWorkers.filter(w => w.type === 'worker').map((worker) => (
+                      <div
+                        key={worker.id}
+                        className="p-3 bg-background rounded border cursor-pointer hover:bg-primary/10 transition-colors"
+                        onClick={() => handleSelectChat(worker.uid)}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="relative">
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={worker.profileImage || "/placeholder.svg"} alt={worker.name} />
+                              <AvatarFallback>
+                                {worker.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            {worker.active && (
+                              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-background"></div>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-medium text-foreground">{worker.name}</h4>
+                              <Badge variant={worker.active ? "default" : "secondary"} className="text-xs">
+                                {worker.active ? "Active" : "Inactive"}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{worker.role}</p>
+                            <p className="text-sm text-muted-foreground">{worker.location || 'No location set'}</p>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm text-muted-foreground">{chat.role}</p>
-                          {chat.type === "system" && (
-                            <Badge variant="secondary" className="text-xs bg-red-100 text-red-800">
-                              System
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm truncate mt-1">{chat.lastMessage}</p>
                       </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-                      {chat.unread > 0 && <Badge className="bg-primary text-primary-foreground">{chat.unread}</Badge>}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {filteredChats.length === 0 && (
+            {departmentWorkers.length === 0 && (
               <Card>
                 <CardContent className="p-8 text-center">
                   <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="font-semibold mb-2">No conversations found</h3>
+                  <h3 className="font-semibold mb-2">No contacts found</h3>
                   <p className="text-sm text-muted-foreground">
-                    {searchTerm ? "Try adjusting your search terms." : "Start a conversation to get started."}
+                    {searchTerm ? "Try adjusting your search terms." : "No department contacts available."}
                   </p>
                 </CardContent>
               </Card>
@@ -384,11 +522,11 @@ export default function ChatPage() {
               <CardContent className="p-4">
                 <h3 className="font-semibold mb-3">Quick Actions</h3>
                 <div className="grid grid-cols-2 gap-3">
-                  <Button variant="outline" className="justify-start bg-transparent">
+                  <Button variant="outline" className="justify-start bg-transparent hover:bg-muted hover:text-foreground">
                     <Phone className="h-4 w-4 mr-2" />
                     Call Supervisor
                   </Button>
-                  <Button variant="outline" className="justify-start bg-transparent">
+                  <Button variant="outline" className="justify-start bg-transparent hover:bg-muted hover:text-foreground">
                     <Bell className="h-4 w-4 mr-2" />
                     Emergency Alert
                   </Button>

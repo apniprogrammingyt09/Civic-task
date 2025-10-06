@@ -1,105 +1,133 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Camera, Upload } from "lucide-react"
+import { ArrowLeft, Camera } from "lucide-react"
 import { BottomNavigation } from "@/components/bottom-navigation"
+import { AuthGuard } from "@/components/auth-guard"
 import Link from "next/link"
-
-const proofItems = [
-  {
-    id: 1,
-    taskTitle: "Sewage Problem - Main Pipe",
-    location: "Indiranagar, Bangalore",
-    date: "2024-01-18",
-    status: "submitted",
-    proofType: "Before/After Photos",
-    images: 3,
-  },
-  {
-    id: 2,
-    taskTitle: "Street Light Repair",
-    location: "Koramangala, Bangalore",
-    date: "2024-01-17",
-    status: "approved",
-    proofType: "Video + Photos",
-    images: 5,
-  },
-  {
-    id: 3,
-    taskTitle: "Pothole Filling",
-    location: "Whitefield, Bangalore",
-    date: "2024-01-16",
-    status: "pending",
-    proofType: "Photos",
-    images: 2,
-  },
-]
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { getAuth } from "firebase/auth"
+import { toast } from "sonner"
 
 export default function ProofOfWorkPage() {
-  const [selectedTab, setSelectedTab] = useState<"submitted" | "pending" | "approved">("submitted")
+  const [selectedTab, setSelectedTab] = useState<"submitted" | "pending" | "approved" | "escalated">("submitted")
+  const [tasks, setTasks] = useState<any[]>([])
+  const [assignedTasks, setAssignedTasks] = useState<any[]>([])
 
-  const filteredItems = proofItems.filter((item) => item.status === selectedTab)
+  const auth = getAuth()
+
+  useEffect(() => {
+    if (!auth.currentUser) return
+
+    const issuesRef = collection(db, 'issues')
+    const q = query(issuesRef, where('assignedPersonnel.id', '==', auth.currentUser.uid))
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tasksData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        taskTitle: doc.data().summary || 'Task assigned',
+        location: doc.data().geoData?.address || doc.data().geoData?.city || 'Unknown location',
+        date: doc.data().reportedTime || 'Recently',
+        status: doc.data().escalation?.status === 'approved' ? 'escalated' :
+                doc.data().proofStatus === 'approved' ? 'approved' : 
+                doc.data().proofStatus === 'rejected' ? 'pending' :
+                doc.data().proofOfWork?.length > 0 ? 'submitted' : 'pending',
+        proofType: doc.data().escalation?.status === 'approved' ? 'Escalated' : 'Photos',
+        images: doc.data().escalation?.status === 'approved' ? 0 : (doc.data().proofOfWork?.length || 0)
+      }))
+      setTasks(tasksData)
+      setAssignedTasks(tasksData.filter(task => task.status === 'pending' && task.images === 0))
+    })
+
+    return () => unsubscribe()
+  }, [auth.currentUser])
+
+  const filteredItems = tasks.filter((item) => item.status === selectedTab)
+  const stats = {
+    submitted: tasks.filter(t => t.status === 'submitted').length,
+    pending: tasks.filter(t => t.status === 'pending').length,
+    approved: tasks.filter(t => t.status === 'approved').length,
+    escalated: tasks.filter(t => t.status === 'escalated').length
+  }
+
+
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="flex items-center p-4 border-b border-border">
-        <Link href="/">
-          <Button variant="ghost" size="sm" className="mr-3">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <h1 className="text-lg font-semibold">Proof of Work</h1>
-      </header>
+    <AuthGuard>
+      <div className="min-h-screen bg-background">
+        <header className="flex items-center p-4 border-b border-border">
+          <Link href="/">
+            <Button variant="ghost" size="sm" className="mr-3">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <h1 className="text-lg font-semibold">Proof of Work</h1>
+        </header>
 
-      <main className="pb-20">
-        <div className="p-4 space-y-4">
-          {/* Stats Overview */}
-          <div className="grid grid-cols-3 gap-4">
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-blue-500">12</div>
-                <div className="text-sm text-muted-foreground">Submitted</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-yellow-500">5</div>
-                <div className="text-sm text-muted-foreground">Pending</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-green-500">8</div>
-                <div className="text-sm text-muted-foreground">Approved</div>
-              </CardContent>
-            </Card>
-          </div>
+        <main className="pb-20">
+          <div className="p-4 space-y-4">
+            {/* Stats Overview */}
+            <div className="grid grid-cols-4 gap-2">
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <div className="text-xl font-bold text-blue-500">{stats.submitted}</div>
+                  <div className="text-xs text-muted-foreground">Submitted</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <div className="text-xl font-bold text-yellow-500">{stats.pending}</div>
+                  <div className="text-xs text-muted-foreground">Pending</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <div className="text-xl font-bold text-green-500">{stats.approved}</div>
+                  <div className="text-xs text-muted-foreground">Approved</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <div className="text-xl font-bold text-purple-500">{stats.escalated}</div>
+                  <div className="text-xs text-muted-foreground">Escalated</div>
+                </CardContent>
+              </Card>
+            </div>
 
           {/* Tab Navigation */}
           <div className="flex rounded-lg bg-muted p-1">
             <Button
               variant={selectedTab === "submitted" ? "default" : "ghost"}
-              className="flex-1"
+              className="flex-1 text-xs"
               onClick={() => setSelectedTab("submitted")}
             >
               Submitted
             </Button>
             <Button
               variant={selectedTab === "pending" ? "default" : "ghost"}
-              className="flex-1"
+              className="flex-1 text-xs"
               onClick={() => setSelectedTab("pending")}
             >
               Pending
             </Button>
             <Button
               variant={selectedTab === "approved" ? "default" : "ghost"}
-              className="flex-1"
+              className="flex-1 text-xs"
               onClick={() => setSelectedTab("approved")}
             >
               Approved
+            </Button>
+            <Button
+              variant={selectedTab === "escalated" ? "default" : "ghost"}
+              className="flex-1 text-xs"
+              onClick={() => setSelectedTab("escalated")}
+            >
+              Escalated
             </Button>
           </div>
 
@@ -120,7 +148,9 @@ export default function ProofOfWorkPage() {
                           ? "bg-green-500"
                           : item.status === "submitted"
                             ? "bg-blue-500"
-                            : "bg-yellow-500"
+                            : item.status === "escalated"
+                              ? "bg-purple-500"
+                              : "bg-yellow-500"
                       } text-white`}
                     >
                       {item.status.toUpperCase()}
@@ -131,7 +161,8 @@ export default function ProofOfWorkPage() {
                     <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                       <Camera className="h-4 w-4" />
                       <span>{item.proofType}</span>
-                      <span>• {item.images} files</span>
+                      {item.status !== 'escalated' && <span>• {item.images} files</span>}
+                      {item.status === 'escalated' && <span>• No proof required</span>}
                     </div>
                     <Button size="sm" variant="outline">
                       View Details
@@ -142,22 +173,14 @@ export default function ProofOfWorkPage() {
             ))}
           </div>
 
-          {/* Quick Upload */}
-          <Card className="border-dashed border-2 border-primary/20">
-            <CardContent className="p-6 text-center">
-              <Upload className="h-12 w-12 mx-auto text-primary mb-4" />
-              <h3 className="font-semibold mb-2">Quick Upload</h3>
-              <p className="text-sm text-muted-foreground mb-4">Upload proof for your latest completed task</p>
-              <Button>
-                <Camera className="h-4 w-4 mr-2" />
-                Add Proof
-              </Button>
-            </CardContent>
-          </Card>
+
         </div>
       </main>
 
+
+
       <BottomNavigation />
     </div>
+    </AuthGuard>
   )
 }

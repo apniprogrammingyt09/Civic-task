@@ -1,14 +1,14 @@
 "use client"
 
-import { Briefcase, MessageSquare, BarChart3, Tv, User } from "lucide-react"
+import { Briefcase, MessageSquare, User, Plus, CheckCircle } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 const navItems = [
   { icon: Briefcase, label: "Task", href: "/" },
+  { icon: CheckCircle, label: "PoW", href: "/pow" },
+  { icon: Plus, label: "Post", href: "/create-post" },
   { icon: MessageSquare, label: "Chat", href: "/chat" },
-  { icon: BarChart3, label: "Leaderboard", href: "/leaderboard" },
-  { icon: Tv, label: "POW", href: "/pow" },
   { icon: User, label: "Profile", href: "/profile" },
 ]
 
@@ -16,7 +16,7 @@ export function BottomNavigation() {
   const pathname = usePathname()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border">
+    <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border lg:hidden">
       <div className="flex items-center justify-around py-2">
         {navItems.map((item) => {
           const isActive =

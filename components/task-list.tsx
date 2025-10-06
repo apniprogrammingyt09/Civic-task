@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -9,16 +9,58 @@ import Link from "next/link"
 import Image from "next/image"
 import { mockTasks, type Task } from "@/lib/mock-data"
 import { useAuth } from "@/lib/auth-context"
+import { collection, query, where, onSnapshot } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 type TaskStatus = "all" | "pending" | "in-progress" | "completed" | "escalated"
 
 export function TaskList() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus>("all")
   const [sortBy, setSortBy] = useState<"deadline" | "priority" | "created">("deadline")
+  const [assignedTasks, setAssignedTasks] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const { user } = useAuth()
 
+  useEffect(() => {
+    if (!user?.id) return
+
+    setLoading(true)
+    const issuesRef = collection(db, 'issues')
+    const q = query(issuesRef, where('assignedPersonnel.id', '==', user.id))
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          title: data.summary || 'Task assigned',
+          category: data.category || 'General',
+          priority: data.priority?.toLowerCase() || 'medium',
+          status: data.escalation?.status === 'approved' ? 'escalated' : 
+                  data.status === 'assign' ? 'pending' : 
+                  data.status === 'resolved' ? 'completed' : 
+                  data.status,
+          location: {
+            address: data.geoData?.address || data.geoData?.city || 'Unknown location'
+          },
+          createdAt: data.reportedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          estimatedTime: data.eta || '2-4',
+          assignedPersonnel: data.assignedPersonnel
+        }
+      })
+      setAssignedTasks(tasks)
+      setLoading(false)
+    }, (error) => {
+      console.error('Error fetching tasks:', error)
+      setLoading(false)
+    })
+
+    return () => unsubscribe()
+  }, [user?.id])
+
   const filteredTasks = useMemo(() => {
-    let tasks = mockTasks.filter((task) => task.assignedTo === user?.id)
+    let tasks = assignedTasks
 
     if (statusFilter !== "all") {
       tasks = tasks.filter((task) => task.status === statusFilter)
@@ -40,7 +82,7 @@ export function TaskList() {
     })
 
     return tasks
-  }, [statusFilter, sortBy, user?.id])
+  }, [statusFilter, sortBy, assignedTasks])
 
   const getStatusColor = (status: Task["status"]) => {
     switch (status) {
@@ -100,6 +142,17 @@ export function TaskList() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+          <p className="text-muted-foreground">Loading your tasks...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -130,7 +183,7 @@ export function TaskList() {
             variant={statusFilter === key ? "default" : "outline"}
             size="sm"
             onClick={() => setStatusFilter(key as TaskStatus)}
-            className="whitespace-nowrap"
+            className={`whitespace-nowrap ${statusFilter === key ? "" : "hover:bg-muted hover:text-foreground"}`}
           >
             {label}
           </Button>
@@ -189,7 +242,7 @@ export function TaskList() {
 
                 <div className="flex items-center justify-between pt-2">
                   <Link href={`/task/${task.id}`}>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" className="hover:bg-muted hover:text-foreground">
                       VIEW DETAIL
                     </Button>
                   </Link>
